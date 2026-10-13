@@ -1,0 +1,12 @@
+   # Project rules for Copilot
+   - Project: Trader Bookkeeper, an offline voice-first bookkeeping app for informal traders.
+   - Stack: React Native, Expo, TypeScript, expo-sqlite, Jest.
+   - Everything must work offline with no API keys or paid services.
+   - Money is stored as integers. Totals are always calculated by code, never by AI.
+   - Nothing is saved without user confirmation on the Confirm screen.
+   - Typed input must always be available; voice is optional.
+   - Target device: low-end Android (Infinix Smart 7, 2 to 4 GB RAM). Keep it light.
+   - Large tap targets, high contrast, minimal text.
+   - Follow docs/seed/ARCHITECTURE.md for structure and types.
+   - Write Jest tests for parser and aggregation logic.
+   - Do not add dependencies without telling me why.
