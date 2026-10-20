@@ -14,3 +14,7 @@
 - Speech: on-device Whisper via whisper.rn is the primary engine; typed input is always available.
 - Native modules require a development build (not Expo Go).
 - Do not commit model files larger than 100 MB to git.
+- Solo developer with a hard deadline of October 25, 2026. Keep solutions simple and small.
+- Speech: on-device Whisper via whisper.rn is the primary engine; typed input is always available.
+- Native modules require a development build (not Expo Go).
+- Do not commit model files larger than 100 MB to git.
