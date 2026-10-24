@@ -57,3 +57,6 @@
     }
   }
 }
+"android": {
+  "permissions": ["RECORD_AUDIO"]
+}

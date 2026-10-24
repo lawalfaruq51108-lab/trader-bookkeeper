@@ -42,3 +42,5 @@ yarn-error.*
 
 # Devpost learning context
 /devpost/learner-profile.md
+
+*.bin
