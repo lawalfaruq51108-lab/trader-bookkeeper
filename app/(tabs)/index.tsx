@@ -1,368 +1,411 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  PermissionsAndroid,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-import { Directory, File, Paths } from 'expo-file-system';
-import { initWhisper } from 'whisper.rn';
-import LiveAudioStream from '@fugood/react-native-audio-pcm-stream';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
+
 import { useColorScheme } from '@/components/useColorScheme';
+import { getEntriesByDate } from '@/src/db/entries';
+import { summarizeDay } from '@/src/domain/aggregate';
+import type { ParseResult } from '@/src/domain/types';
+import { parseTranscript } from '@/src/parser';
+import {
+  isModelReady,
+  loadModel,
+  release,
+  startRecording,
+  stopAndTranscribe,
+  type SpeechLoadProgress,
+} from '@/src/speech/input';
+import { DEMO_SAMPLES } from '@/src/demo/samples';
 
-const MODEL_NAME = 'ggml-tiny.en.bin';
-const MODEL_URL = `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${MODEL_NAME}`;
-const MAX_SECONDS = 15;
-const SAMPLE_RATE = 16000;
-const PROMPT =
-  'Nigerian market trader recording sales and expenses in naira. Words: sold, paid, bought, bag, carton, piece, thousand, k, indomie, rice, transport.';
-
-type SpeechStep =
-  | 'idle'
-  | 'downloading'
-  | 'loading model'
-  | 'model ready'
-  | 'recording'
-  | 'transcribing'
-  | 'done'
-  | 'error';
-
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
+function getLocalDate(): string {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode.apply(
-      null,
-      Array.from(bytes.subarray(i, i + chunk)) as unknown as number[]
-    );
-  }
-  return btoa(bin);
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-function pcmToWavDataUri(pcm: Uint8Array): string {
-  const header = new ArrayBuffer(44);
-  const v = new DataView(header);
-  const str = (o: number, s: string) => {
-    for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i));
-  };
-  str(0, 'RIFF');
-  v.setUint32(4, 36 + pcm.length, true);
-  str(8, 'WAVE');
-  str(12, 'fmt ');
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true); // PCM
-  v.setUint16(22, 1, true); // mono
-  v.setUint32(24, SAMPLE_RATE, true);
-  v.setUint32(28, SAMPLE_RATE * 2, true);
-  v.setUint16(32, 2, true);
-  v.setUint16(34, 16, true);
-  str(36, 'data');
-  v.setUint32(40, pcm.length, true);
-  const wav = new Uint8Array(44 + pcm.length);
-  wav.set(new Uint8Array(header), 0);
-  wav.set(pcm, 44);
-  return 'data:audio/wav;base64,' + bytesToBase64(wav);
-}
-
-export default function SpeechTestScreen() {
+export default function RecordScreen() {
   const isDark = useColorScheme() === 'dark';
   const colors = isDark
     ? {
         background: '#121212',
         surface: '#1e1e1e',
         text: '#f5f5f5',
-        secondaryText: '#c4c7c5',
+        secondaryText: '#d0d0d0',
         border: '#8a8a8a',
+        accent: '#9bd7ad',
+        button: '#176b35',
         error: '#ff8a80',
       }
     : {
         background: '#ffffff',
-        surface: '#f7f7f7',
+        surface: '#f5f5f5',
         text: '#111111',
-        secondaryText: '#555555',
-        border: '#767676',
+        secondaryText: '#444444',
+        border: '#666666',
+        accent: '#145c2e',
+        button: '#1b7f3b',
         error: '#b3261e',
       };
-  const ctxRef = useRef<any>(null);
-  const chunksRef = useRef<Uint8Array[]>([]);
-  const recordingRef = useRef(false);
-  const streamReadyRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [status, setStatus] = useState<SpeechStep>('idle');
-  const [modelReady, setModelReady] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [recording, setRecording] = useState(false);
+  const db = useSQLiteContext();
+  const router = useRouter();
+  const inputRef = useRef<TextInput>(null);
   const [transcript, setTranscript] = useState('');
-  const [loadMs, setLoadMs] = useState<number | null>(null);
-  const [transcribeMs, setTranscribeMs] = useState<number | null>(null);
-  const [audioChunkCount, setAudioChunkCount] = useState(0);
-  const [error, setError] = useState('');
+  const [todayProfit, setTodayProfit] = useState(0);
+  const [profitError, setProfitError] = useState('');
+  const [voiceState, setVoiceState] = useState<
+    'idle' | 'loading' | 'recording' | 'transcribing'
+  >('idle');
+  const [loadProgress, setLoadProgress] = useState<SpeechLoadProgress | null>(
+    null
+  );
+  const [voiceError, setVoiceError] = useState('');
+  const [parseError, setParseError] = useState('');
+  const today = getLocalDate();
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      getEntriesByDate(db, today)
+        .then((entries) => {
+          if (active) {
+            setTodayProfit(summarizeDay(entries).profit);
+            setProfitError('');
+          }
+        })
+        .catch((error: unknown) => {
+          if (active) setProfitError(errorText(error));
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [db, today])
+  );
 
   useEffect(() => {
-    console.log('[SpeechTest] idle');
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      try {
-        ctxRef.current?.release?.();
-      } catch {}
+      release().catch((error: unknown) => {
+        console.error('[Record] Failed to release speech resources:', error);
+      });
     };
   }, []);
 
-  const setStep = (step: SpeechStep, detail?: string) => {
-    setStatus(step);
-    console.log(`[SpeechTest] ${step}${detail ? `: ${detail}` : ''}`);
-  };
+  const handleVoicePress = async () => {
+    setVoiceError('');
+    setLoadProgress(null);
 
-  const fail = (where: string, e: unknown) => {
-    const msg = e instanceof Error ? e.message : String(e);
-    setError(`${where}: ${msg}`);
-    setStep('error', `${where}: ${msg}`);
-  };
-
-  const loadModel = async () => {
-    setError('');
-    setBusy(true);
-    console.log('[SpeechTest] model load requested');
-    try {
-      const modelFile = new File(Paths.document, MODEL_NAME);
-      if (!modelFile.exists) {
-        setStep('downloading');
-        await File.downloadFileAsync(MODEL_URL, new Directory(Paths.document));
+    if (voiceState === 'recording') {
+      setVoiceState('transcribing');
+      try {
+        const recognizedText = await stopAndTranscribe();
+        setTranscript((current) =>
+          current.trim()
+            ? `${current.trim()} ${recognizedText}`
+            : recognizedText
+        );
+      } catch (error) {
+        setVoiceError(errorText(error));
+        inputRef.current?.focus();
+      } finally {
+        setVoiceState('idle');
       }
-      setStep('loading model');
-      const t0 = Date.now();
-      ctxRef.current = await initWhisper({ filePath: modelFile.uri });
-      const elapsed = Date.now() - t0;
-      setLoadMs(elapsed);
-      console.log(`[SpeechTest] model load time: ${elapsed} ms`);
-      setModelReady(true);
-      setStep('model ready');
-    } catch (e) {
-      fail('Model', e);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const ensureMic = async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') return true;
-    const res = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
-    );
-    return res === PermissionsAndroid.RESULTS.GRANTED;
-  };
-
-  const startRecording = async () => {
-    setError('');
-    setTranscript('');
-    setTranscribeMs(null);
-    setAudioChunkCount(0);
-    try {
-      if (!(await ensureMic())) {
-        const message =
-          'Microphone permission was denied. Turn it on in Settings > Apps.';
-        setError(message);
-        setStep('error', message);
-        return;
-      }
-      if (!streamReadyRef.current) {
-        LiveAudioStream.init({
-          sampleRate: SAMPLE_RATE,
-          channels: 1,
-          bitsPerSample: 16,
-          audioSource: 6,
-          bufferSize: 4096,
-          wavFile: '',
-        });
-        LiveAudioStream.on('data', (b64: string) => {
-          if (recordingRef.current) {
-            chunksRef.current.push(base64ToBytes(b64));
-            setAudioChunkCount(chunksRef.current.length);
-          }
-        });
-        streamReadyRef.current = true;
-      }
-      chunksRef.current = [];
-      recordingRef.current = true;
-      LiveAudioStream.start();
-      setRecording(true);
-      setStep('recording');
-      timerRef.current = setTimeout(() => {
-        stopRecording();
-      }, MAX_SECONDS * 1000);
-    } catch (e) {
-      recordingRef.current = false;
-      setRecording(false);
-      fail('Recording', e);
-    }
-  };
-
-  const stopRecording = async () => {
-    if (!recordingRef.current) return;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    recordingRef.current = false;
-    setRecording(false);
-    try {
-      await LiveAudioStream.stop();
-    } catch (e) {
-      fail('Stop', e);
       return;
     }
 
-    const total = chunksRef.current.reduce((n, c) => n + c.length, 0);
-    if (total < SAMPLE_RATE * 2 * 0.5) {
-      const message =
-        'Recording was too short. Try again and speak for a few seconds.';
-      setError(message);
-      setStep('error', message);
+    try {
+      if (!isModelReady()) {
+        setVoiceState('loading');
+        await loadModel((progress) => setLoadProgress(progress));
+      }
+      await startRecording();
+      setVoiceState('recording');
+    } catch (error) {
+      setVoiceError(errorText(error));
+      inputRef.current?.focus();
+      setVoiceState('idle');
+    }
+  };
+
+  const handleParse = () => {
+    setParseError('');
+    const text = transcript.trim();
+    if (!text) {
+      setParseError('Type or choose a sentence before parsing.');
+      inputRef.current?.focus();
       return;
     }
-    const pcm = new Uint8Array(total);
-    let offset = 0;
-    for (const c of chunksRef.current) {
-      pcm.set(c, offset);
-      offset += c.length;
-    }
 
-    setStep('transcribing', `${chunksRef.current.length} audio chunks`);
-    setBusy(true);
     try {
-      const t0 = Date.now();
-      const { promise } = ctxRef.current.transcribe(pcmToWavDataUri(pcm), {
-        language: 'en',
-        prompt: PROMPT,
+      const result: ParseResult = parseTranscript(text);
+      router.push({
+        pathname: '/confirm',
+        params: { result: JSON.stringify(result) },
       });
-      const { result } = await promise;
-      const elapsed = Date.now() - t0;
-      const text = (result ?? '').trim() || '(nothing recognized)';
-      setTranscribeMs(elapsed);
-      setTranscript(text);
-      console.log(`[SpeechTest] transcribe time: ${elapsed} ms`);
-      console.log(`[SpeechTest] transcript: ${text}`);
-      setStep('done');
-    } catch (e) {
-      fail('Transcribe', e);
-    } finally {
-      setBusy(false);
+    } catch (error) {
+      setParseError(errorText(error));
     }
   };
+
+  const voiceButtonLabel =
+    voiceState === 'recording'
+      ? 'Stop voice'
+      : voiceState === 'loading'
+        ? 'Preparing voice...'
+        : voiceState === 'transcribing'
+          ? 'Transcribing...'
+          : 'Voice (beta)';
+
+  const loadMessage =
+    loadProgress?.stage === 'downloading'
+      ? loadProgress.progress !== undefined
+        ? `Downloading voice model: ${Math.round(loadProgress.progress)}%`
+        : 'Downloading voice model...'
+      : loadProgress?.stage === 'loading'
+        ? 'Loading voice model...'
+        : '';
 
   return (
     <ScrollView
       style={{ backgroundColor: colors.background }}
       contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
     >
+      <View style={[styles.profitCard, { backgroundColor: colors.surface }]}>
+        <Text style={[styles.eyebrow, { color: colors.secondaryText }]}>
+          TODAY'S PROFIT
+        </Text>
+        <Text style={[styles.profit, { color: colors.accent }]}>
+          ₦{todayProfit.toLocaleString('en-NG')}
+        </Text>
+        {!!profitError && (
+          <Text style={[styles.errorText, { color: colors.error }]}>
+            Could not load today's profit: {profitError}
+          </Text>
+        )}
+      </View>
+
       <Text style={[styles.title, { color: colors.text }]}>
-        Speech test (Whisper tiny.en)
+        Record a sale or expense
       </Text>
-      <Text style={[styles.status, { color: colors.text }]}>Status: {status}</Text>
+      <Text style={[styles.body, { color: colors.secondaryText }]}>
+        Type what happened, or choose a sample sentence.
+      </Text>
 
-      {!modelReady && (
-        <Pressable
-          style={[styles.btn, busy && styles.disabled]}
-          disabled={busy}
-          onPress={loadModel}
-        >
-          <Text style={styles.btnText}>1. Load model</Text>
-        </Pressable>
-      )}
-
-      {modelReady && !recording && (
-        <Pressable
-          style={[styles.btn, busy && styles.disabled]}
-          disabled={busy}
-          onPress={startRecording}
-        >
-          <Text style={styles.btnText}>Record</Text>
-        </Pressable>
-      )}
-
-      {recording && (
-        <Pressable style={[styles.btn, styles.stop]} onPress={stopRecording}>
-          <Text style={styles.btnText}>Stop</Text>
-        </Pressable>
-      )}
-
-      <View
+      <TextInput
+        ref={inputRef}
+        value={transcript}
+        onChangeText={setTranscript}
+        multiline
+        textAlignVertical="top"
+        placeholder="Example: sold 3 bags of rice at 40k each"
+        placeholderTextColor={colors.secondaryText}
+        accessibilityLabel="Type a sale or expense"
         style={[
-          styles.box,
-          { backgroundColor: colors.surface, borderColor: colors.border },
+          styles.input,
+          {
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            color: colors.text,
+          },
         ]}
-      >
-        <Text style={[styles.label, { color: colors.secondaryText }]}>Transcript</Text>
-        <Text style={[styles.transcript, { color: colors.text }]}>
-          {transcript || '-'}
-        </Text>
-      </View>
+      />
 
-      <View
-        style={[
-          styles.box,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-        ]}
-      >
-        <Text style={[styles.label, { color: colors.secondaryText }]}>Model load time</Text>
-        <Text style={[styles.value, { color: colors.text }]}>
-          {loadMs !== null ? `${loadMs} ms` : '-'}
-        </Text>
-        <Text style={[styles.label, { color: colors.secondaryText }]}>
-          Audio chunks collected
-        </Text>
-        <Text style={[styles.value, { color: colors.text }]}>{audioChunkCount}</Text>
-        <Text style={[styles.label, { color: colors.secondaryText }]}>
-          Transcribe time
-        </Text>
-        <Text style={[styles.value, { color: colors.text }]}>
-          {transcribeMs !== null ? `${transcribeMs} ms` : '-'}
-        </Text>
-      </View>
+      <View style={styles.actions}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={handleParse}
+          style={({ pressed }) => [
+            styles.parseButton,
+            { backgroundColor: colors.button, opacity: pressed ? 0.8 : 1 },
+          ]}
+        >
+          <Text style={styles.primaryButtonText}>Parse</Text>
+        </Pressable>
 
-      {!!error && (
-        <View
-          style={[
-            styles.box,
+        <Pressable
+          accessibilityRole="button"
+          disabled={voiceState === 'loading' || voiceState === 'transcribing'}
+          onPress={handleVoicePress}
+          style={({ pressed }) => [
+            styles.voiceButton,
             {
-              backgroundColor: colors.surface,
-              borderColor: colors.error,
+              borderColor: colors.border,
+              opacity:
+                voiceState === 'loading' || voiceState === 'transcribing'
+                  ? 0.6
+                  : pressed
+                    ? 0.75
+                    : 1,
             },
           ]}
         >
-          <Text style={[styles.label, { color: colors.secondaryText }]}>Error</Text>
-          <Text style={[styles.error, { color: colors.error }]}>{error}</Text>
-        </View>
+          <Text style={[styles.voiceButtonText, { color: colors.text }]}>
+            {voiceButtonLabel}
+          </Text>
+        </Pressable>
+      </View>
+
+      {!!loadMessage && (
+        <Text style={[styles.body, { color: colors.secondaryText }]}>
+          {loadMessage}
+        </Text>
       )}
+      {!!voiceError && (
+        <Text style={[styles.errorText, { color: colors.error }]}>
+          {voiceError}
+          {!voiceError.includes('You can type your sales instead') &&
+            ' You can type your sales instead'}
+        </Text>
+      )}
+      {!!parseError && (
+        <Text style={[styles.errorText, { color: colors.error }]}>
+          {parseError}
+        </Text>
+      )}
+
+      <Text style={[styles.note, { color: colors.secondaryText }]}>
+        Voice is beta. First use downloads about 75 MB once; after that it works
+        offline. It may be slow (about 11 seconds) or inaccurate. Typed input
+        is always available.
+      </Text>
+
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>
+        Try a sample
+      </Text>
+      <View style={styles.samples}>
+        {DEMO_SAMPLES.map((sample) => (
+          <Pressable
+            key={sample}
+            accessibilityRole="button"
+            onPress={() => {
+              setTranscript(sample);
+              setParseError('');
+            }}
+            style={({ pressed }) => [
+              styles.sample,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                opacity: pressed ? 0.75 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.sampleText, { color: colors.text }]}>
+              {sample}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, paddingTop: 60, gap: 16 },
-  title: { fontSize: 22, fontWeight: '700' },
-  status: { fontSize: 16 },
-  btn: {
-    backgroundColor: '#1b7f3b',
-    paddingVertical: 20,
+  container: {
+    padding: 20,
+    paddingTop: 28,
+    paddingBottom: 40,
+    gap: 16,
+  },
+  profitCard: {
+    padding: 18,
+    borderRadius: 14,
+    gap: 4,
+  },
+  eyebrow: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  profit: {
+    fontSize: 32,
+    fontWeight: '800',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  body: {
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  input: {
+    minHeight: 170,
+    borderWidth: 2,
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 18,
+    lineHeight: 25,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  parseButton: {
+    minHeight: 58,
+    paddingHorizontal: 28,
     borderRadius: 12,
     alignItems: 'center',
-    minHeight: 64,
+    justifyContent: 'center',
   },
-  stop: { backgroundColor: '#b3261e' },
-  disabled: { opacity: 0.5 },
-  btnText: { color: '#fff', fontSize: 22, fontWeight: '700' },
-  box: { borderWidth: 1, borderRadius: 12, padding: 14, gap: 4 },
-  label: { fontSize: 13 },
-  transcript: { fontSize: 28, fontWeight: '600' },
-  value: { fontSize: 20, fontWeight: '600' },
-  error: { fontSize: 16 },
+  primaryButtonText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  voiceButton: {
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 10,
+    justifyContent: 'center',
+  },
+  voiceButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  note: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  errorText: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '600',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  samples: {
+    gap: 10,
+  },
+  sample: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+  },
+  sampleText: {
+    fontSize: 15,
+    lineHeight: 21,
+  },
 });
