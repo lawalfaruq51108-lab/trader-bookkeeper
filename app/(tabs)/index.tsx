@@ -334,10 +334,6 @@ export default function SpeechTestScreen() {
             styles.box,
             {
               backgroundColor: colors.surface,
-              borderWidth: 1,
-              borderRadius: 12,
-              padding: 14,
-              gap: 4,
               borderColor: colors.error,
             },
           ]}
