@@ -41,7 +41,7 @@ _Add screenshots here before submission._
 ## Install
 
 ### Option 1: Android APK (easiest)
-1. Download the latest APK from the **Releases** page: `<ADD RELEASE LINK>`
+1. Download the latest APK from the **Releases** page: (https://github.com/lawalfaruq51108-lab/trader-bookkeeper/releases)>`
 2. Allow installation from unknown sources if prompted.
 3. Open **Trader Bookkeeper**.
 
@@ -49,7 +49,7 @@ _Add screenshots here before submission._
 Requirements: Node.js (LTS), Git, and an Android phone with USB debugging or an emulator.
 
 ```bash
-git clone https://github.com/<your-username>/trader-bookkeeper.git
+git clone https://github.com/<lawalfaruq51108-lab>/trader-bookkeeper.git
 cd trader-bookkeeper
 npm install
 npx expo start
