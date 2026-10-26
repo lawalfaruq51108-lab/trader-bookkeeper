@@ -11,7 +11,9 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { useColorScheme } from '@/components/useColorScheme';
+import { getDemoDatabase } from '@/src/db/demo';
 import { getEntriesByDate } from '@/src/db/entries';
+import { getDemoMode, setDemoMode } from '@/src/db/settings';
 import { summarizeDay } from '@/src/domain/aggregate';
 import type { ParseResult } from '@/src/domain/types';
 import { parseTranscript } from '@/src/parser';
@@ -74,13 +76,18 @@ export default function RecordScreen() {
   );
   const [voiceError, setVoiceError] = useState('');
   const [parseError, setParseError] = useState('');
+  const [demoMode, setDemoModeState] = useState(false);
   const today = getLocalDate();
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      getEntriesByDate(db, today)
-        .then((entries) => {
+      getDemoMode(db)
+        .then(async (enabled) => {
+          if (!active) return;
+          setDemoModeState(enabled);
+          const source = enabled ? await getDemoDatabase() : db;
+          const entries = await getEntriesByDate(source, today);
           if (active) {
             setTodayProfit(summarizeDay(entries).profit);
             setProfitError('');
@@ -140,9 +147,9 @@ export default function RecordScreen() {
     }
   };
 
-  const handleParse = () => {
+  const handleParse = (sampleText?: string, forceDemo = false) => {
     setParseError('');
-    const text = transcript.trim();
+    const text = (sampleText ?? transcript).trim();
     if (!text) {
       setParseError('Type or choose a sentence before parsing.');
       inputRef.current?.focus();
@@ -153,10 +160,25 @@ export default function RecordScreen() {
       const result: ParseResult = parseTranscript(text);
       router.push({
         pathname: '/confirm',
-        params: { result: JSON.stringify(result) },
+        params: {
+          result: JSON.stringify(result),
+          demoMode: demoMode || forceDemo ? 'true' : 'false',
+        },
       });
     } catch (error) {
       setParseError(errorText(error));
+    }
+  };
+
+  const handleSamplePress = async (sample: string) => {
+    setTranscript(sample);
+    setParseError('');
+    try {
+      await setDemoMode(db, true);
+      setDemoModeState(true);
+      handleParse(sample, true);
+    } catch (error) {
+      setParseError(`Could not enable demo mode: ${errorText(error)}`);
     }
   };
 
@@ -185,6 +207,11 @@ export default function RecordScreen() {
       keyboardShouldPersistTaps="handled"
     >
       <View style={[styles.profitCard, { backgroundColor: colors.surface }]}>
+        {demoMode && (
+          <Text style={[styles.demoBadge, { color: colors.accent }]}>
+            DEMO MODE — SAMPLE DATA ONLY
+          </Text>
+        )}
         <Text style={[styles.eyebrow, { color: colors.secondaryText }]}>
           TODAY'S PROFIT
         </Text>
@@ -291,10 +318,7 @@ export default function RecordScreen() {
           <Pressable
             key={sample}
             accessibilityRole="button"
-            onPress={() => {
-              setTranscript(sample);
-              setParseError('');
-            }}
+            onPress={() => void handleSamplePress(sample)}
             style={({ pressed }) => [
               styles.sample,
               {
@@ -325,6 +349,11 @@ const styles = StyleSheet.create({
     padding: 18,
     borderRadius: 14,
     gap: 4,
+  },
+  demoBadge: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.7,
   },
   eyebrow: {
     fontSize: 13,

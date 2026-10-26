@@ -1,6 +1,6 @@
 import { SymbolView } from 'expo-symbols';
 import { Link, Tabs } from 'expo-router';
-import { Platform, Pressable } from 'react-native';
+import { Pressable } from 'react-native';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -20,7 +20,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Tab One',
+          title: 'Record',
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{
@@ -51,13 +51,37 @@ export default function TabLayout() {
       <Tabs.Screen
         name="two"
         options={{
-          title: 'Tab Two',
+          href: null,
+          title: 'Settings',
+        }}
+      />
+      <Tabs.Screen
+        name="today"
+        options={{
+          title: 'Today',
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
+                ios: 'calendar',
+                android: 'today',
+                web: 'calendar',
+              }}
+              tintColor={color}
+              size={28}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color }) => (
+            <SymbolView
+              name={{
+                ios: 'gearshape',
+                android: 'settings',
+                web: 'settings',
               }}
               tintColor={color}
               size={28}

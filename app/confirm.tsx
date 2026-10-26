@@ -11,7 +11,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { useColorScheme } from '@/components/useColorScheme';
+import { getDemoDatabase, markDemoEntry } from '@/src/db/demo';
 import { addEntries, type NewEntry } from '@/src/db/entries';
+import { getDemoMode } from '@/src/db/settings';
 import type {
   EntryType,
   ParseResult,
@@ -132,7 +134,10 @@ export default function ConfirmScreen() {
         error: '#b3261e',
         danger: '#8c1d18',
       };
-  const params = useLocalSearchParams<{ result?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    result?: string | string[];
+    demoMode?: string | string[];
+  }>();
   const router = useRouter();
   const db = useSQLiteContext();
   const [entries, setEntries] = useState<DraftEntry[]>([]);
@@ -140,15 +145,33 @@ export default function ConfirmScreen() {
   const [loadError, setLoadError] = useState('');
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [demoMode, setDemoModeState] = useState(false);
 
   useEffect(() => {
+    let active = true;
     const rawResult = Array.isArray(params.result)
       ? params.result[0]
       : params.result;
+    const requestedDemoMode = Array.isArray(params.demoMode)
+      ? params.demoMode[0]
+      : params.demoMode;
+    if (requestedDemoMode === 'true' || requestedDemoMode === 'false') {
+      setDemoModeState(requestedDemoMode === 'true');
+    } else {
+      getDemoMode(db)
+        .then((enabled) => {
+          if (active) setDemoModeState(enabled);
+        })
+        .catch((error: unknown) => {
+          if (active) setLoadError(error instanceof Error ? error.message : String(error));
+        });
+    }
     if (!rawResult) {
       setLoadError('No parsed entries were received. Cancel and try parsing again.');
       setEntries([]);
-      return;
+      return () => {
+        active = false;
+      };
     }
 
     try {
@@ -187,7 +210,10 @@ export default function ConfirmScreen() {
       );
       setEntries([]);
     }
-  }, [params.result]);
+    return () => {
+      active = false;
+    };
+  }, [db, params.demoMode, params.result]);
 
   const allTotalsValid = useMemo(
     () =>
@@ -266,7 +292,11 @@ export default function ConfirmScreen() {
           createdAt: timestamp,
         };
       });
-      await addEntries(db, newEntries);
+      const destination = demoMode ? await getDemoDatabase() : db;
+      await addEntries(
+        destination,
+        demoMode ? newEntries.map(markDemoEntry) : newEntries
+      );
       router.replace('/(tabs)');
     } catch (error) {
       setSaveError(
@@ -312,6 +342,11 @@ export default function ConfirmScreen() {
       <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
         Check and edit everything before saving.
       </Text>
+      {demoMode && (
+        <Text style={[styles.demoBadge, { color: colors.button }]}>
+          DEMO MODE — this will save only to the separate sample database.
+        </Text>
+      )}
 
       <Text style={[styles.label, { color: colors.text }]}>Date (YYYY-MM-DD)</Text>
       {renderTextInput(date, setDate, 'YYYY-MM-DD', 'default', 'Entry date')}
@@ -529,6 +564,11 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     lineHeight: 22,
+  },
+  demoBadge: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
   },
   label: {
     fontSize: 14,

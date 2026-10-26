@@ -1,5 +1,5 @@
 import { Directory, File, Paths } from 'expo-file-system';
-import { PermissionsAndroid, Platform } from 'react-native';
+import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import LiveAudioStream from '@fugood/react-native-audio-pcm-stream';
 import { initWhisper, type WhisperContext } from 'whisper.rn';
 
@@ -131,6 +131,11 @@ class WhisperSpeechInput implements SpeechInput {
     if (!this.context) {
       throw new Error('Voice model is not loaded. Load it before recording.');
     }
+    if (!NativeModules.RNLiveAudioStream) {
+      throw new Error(
+        'Voice recording is unavailable in this app build. You can type your sales instead.'
+      );
+    }
     if (this.recording) {
       throw new Error('A voice recording is already in progress.');
     }
@@ -184,7 +189,8 @@ class WhisperSpeechInput implements SpeechInput {
   }
 
   async stopAndTranscribe(): Promise<string> {
-    if (!this.context) {
+    const context = this.context;
+    if (!context) {
       throw new Error('Voice model is not loaded. Load it before recording.');
     }
     if (!this.recording && !this.stopTask) {
@@ -213,12 +219,15 @@ class WhisperSpeechInput implements SpeechInput {
       }
       this.clearAudio();
 
-      const { promise } = this.context.transcribe(pcmToWavDataUri(pcm), {
+      const transcription = context.transcribe(pcmToWavDataUri(pcm), {
         language: 'en',
         prompt: PROMPT,
         maxThreads: 2,
       });
-      const { result } = await promise;
+      if (!transcription?.promise) {
+        throw new Error('Voice transcription could not be started.');
+      }
+      const { result } = await transcription.promise;
       const transcript = (result ?? '').trim();
       if (!transcript) {
         throw new Error('No speech detected. Try again or type your sales.');
@@ -338,6 +347,12 @@ class WhisperSpeechInput implements SpeechInput {
     this.clearTimer();
     if (this.stopTask) return this.stopTask;
     if (!this.recording) return Promise.resolve();
+    if (!NativeModules.RNLiveAudioStream) {
+      this.recording = false;
+      throw new Error(
+        'Voice recording is unavailable in this app build. You can type your sales instead.'
+      );
+    }
 
     this.recording = false;
     const stopTask = LiveAudioStream.stop().then(() => undefined);

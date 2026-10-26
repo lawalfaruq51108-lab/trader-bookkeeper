@@ -27,5 +27,10 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       currency      TEXT DEFAULT '₦',
       language      TEXT DEFAULT 'en'
     );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 }
