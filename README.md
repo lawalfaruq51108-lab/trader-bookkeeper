@@ -1,146 +1,183 @@
 # Trader Bookkeeper
 
-**Talk to your ledger.** An offline, free, voice-first bookkeeping app for informal market traders. Say what you sold and spent, in English or Pidgin, and get a clean ledger plus a one-page income report you can show a lender.
+An offline-first bookkeeping app for informal traders. Type sales and expenses
+as the main input, or try optional on-device voice transcription. Review every
+parsed entry before saving it to the local ledger.
 
-> Built for the **Build With AI Hackathon** (Devpost) using the Devpost Learn Skill Pack and GitHub Copilot.
-
----
-
-## The Problem
-
-Informal traders (market sellers, provisions shops, fabric and food sellers) track sales in their heads or on scraps of paper. They often do not know their real profit, and with no records they cannot prove income, so loans from microfinance lenders and cooperatives are hard to get. Existing bookkeeping apps assume accounting knowledge, a steady connection, a capable phone and a subscription.
-
-## The Solution
-
-- **Voice-first:** speak the day's sales and expenses, or type them.
-- **Understands local speech:** handles phrases like "I sell am 40k" and "paid transport 5k".
-- **You stay in control:** every entry is shown on a confirm screen to fix before saving.
-- **Offline and free:** runs on the phone with no internet, no subscription, no API key.
-- **Loan-readiness report:** a one-page monthly PDF showing sales, expenses, profit and activity.
-- **Works on cheap phones:** tested on a low-end Android (Infinix Smart 7).
+> Built for the Build With AI Hackathon using the Devpost Learn Skill Pack and
+> GitHub Copilot.
 
 ## Features
 
-| Feature | Status |
-|---|---|
-| Record by voice or text | MVP |
-| Rule-based parser (English and Pidgin) | MVP |
-| Confirm and edit screen | MVP |
-| Daily ledger with totals and profit | MVP |
-| History by day | MVP |
-| Spoken daily summary (text-to-speech) | MVP |
-| Monthly loan-readiness report (PDF) | MVP |
-| Demo mode with sample inputs | MVP |
-| On-device speech model | Planned (decided after speech test) |
-| Optional on-device language model fallback | Stretch |
+- Record sales and expenses by typing; voice input is optional and labeled beta.
+- Rule-based English and Pidgin transcript parser, including number and naira
+  amount handling.
+- Confirm screen to review, edit, and delete parsed entries before saving.
+- Today's sales, expenses, profit, and editable ledger entries.
+- Monthly report preview and one-page PDF sharing, including totals, active
+  days, average daily sales, and top items and expenses.
+- Trader profile with trader name, business name, and trader type; profile
+  details appear in reports.
+- Demo mode with sample inputs and a generated sample month. Demo entries are
+  kept in a separate database from real entries.
+- Local SQLite storage. No account or API key is required.
 
-## Screenshots
+## Android APK
 
-_Add screenshots here before submission._
+**Release download:** `<APK_RELEASE_LINK_NOT_PUBLISHED_YET>`
 
-## Install
-
-### Option 1: Android APK (easiest)
-1. Download the latest APK from the **Releases** page: `<ADD RELEASE LINK>`
-2. Allow installation from unknown sources if prompted.
-3. Open **Trader Bookkeeper**.
-
-### Option 2: Run from source
-Requirements: Node.js (LTS), Git, and an Android phone with USB debugging or an emulator.
+The EAS `preview` profile is configured for an internally distributed Android
+APK. To build it from a configured EAS project:
 
 ```bash
-git clone https://github.com/<your-username>/trader-bookkeeper.git
-cd trader-bookkeeper
+eas build --platform android --profile preview
+```
+
+Install the APK on the Android device after the build completes. The Whisper
+model is not included in the APK: voice downloads it on first use, so that
+initial use needs internet access.
+
+## Run from source
+
+Requirements: Node.js, npm, and an Android device or emulator. The voice
+recorder and Whisper integration use native modules; Expo Go is not sufficient.
+Install and launch an installed development client:
+
+```bash
 npm install
-npx expo start
+npx expo start --dev-client
 ```
 
-If a native speech module is used, you need a development build instead of Expo Go:
+If a development client has not yet been built and installed for the target
+device, create one with EAS first:
 
 ```bash
-npx expo run:android
+eas build --platform android --profile development
 ```
 
-## Try It Without a Microphone (Demo Mode)
+The npm scripts declared in `package.json` are:
 
-1. Open the app and go to **Settings**.
-2. Turn on **Demo mode** (or tap **Demo examples** on the Record screen).
-3. Tap a sample sentence such as _"sold 3 bags of rice at 40k each, paid transport 5k"_.
-4. Review it on the Confirm screen, save it, then open **Today** and **Report**.
-
-No API key or account is needed.
-
-## Example Inputs
-
-| You say or type | The app records |
+| Command | Script |
 |---|---|
-| sold 3 bags of rice at 40k each | Sale: rice, 3 bags, 40,000 each, total 120,000 |
-| I sell am 40k | Sale: total 40,000 (asks for the item name) |
-| paid transport 5k | Expense: transport, 5,000 |
-| I don sell 2 carton indomie for 15 thousand | Sale: indomie, 2 cartons, total 15,000 |
+| `npm start` | `expo start` |
+| `npm run android` | `expo start --android` |
+| `npm run ios` | `expo start --ios` |
+| `npm run web` | `expo start --web` |
+| `npm test` | `jest` |
 
-## How It Works
+The native speech workflow is intended for an installed development client on
+Android, not Expo Go.
 
-```
-Voice or text -> Parser -> Confirm screen -> SQLite ledger -> Reports (PDF) + spoken summary
-```
+## Tests
 
-The parser extracts values from the sentence, and plain code calculates all totals, so the numbers are reliable. See [ARCHITECTURE.md](./ARCHITECTURE.md) for details.
-
-## Tech Stack
-
-- React Native with Expo (TypeScript)
-- `expo-sqlite` for offline storage
-- Speech recognition library (see ARCHITECTURE.md for the chosen one)
-- `expo-speech` for spoken summaries
-- `expo-print` and `expo-sharing` for the PDF report
-- Jest for parser tests
-
-## Run the Tests
+Run the Jest suites with:
 
 ```bash
-npm test
+npm test -- --runInBand
 ```
 
-The parser has a test suite of example sentences with expected outputs.
+Verified for this README update: **2 suites passed, 49 tests passed** (parser and
+aggregation tests).
 
-## Project Documents
+## Try the app without a microphone
 
-| File | Purpose |
-|---|---|
-| `scope.md` | Project scope (generated with the Devpost Learn Skill Pack) |
-| `prd.md` | Product requirements (generated with the Devpost Learn Skill Pack) |
-| `spec.md` | Technical specification (generated with the Devpost Learn Skill Pack) |
-| `ARCHITECTURE.md` | System design and module overview |
-| `docs/` | Seed documents and speech test notes |
+1. Open **Settings** and enable **Demo mode**, or load a sample month there.
+2. On **Record**, tap a sample sentence or type your own.
+3. Review and edit the parsed entries on **Confirm**, then choose **Save All**.
+4. View today's ledger in **Today**, or open **Report** to preview and share a
+   monthly PDF.
 
-## AI in This Project
+Demo records are stored separately and labeled as demo data. Turning demo mode
+off returns screens to the real ledger.
 
-- **Built with AI:** planned and built using the Devpost Learn Skill Pack and GitHub Copilot in VS Code.
-- **AI in the app:** `<UPDATE after speech test: on-device speech model / built-in recognizer / none>`.
+## Voice and AI
 
-## Third-Party Libraries and Disclosures
+- Speech recognition runs on-device through `whisper.rn` using the Whisper
+  `tiny.en` model (`ggml-tiny.en.bin`).
+- The model is downloaded once on first voice use (about **75 MB**), rather than
+  bundled in the app. After it has downloaded, transcription works offline.
+- Voice is a beta feature. In the Infinix Smart 7 test, model loading took
+  **1,020 ms** and transcribing one short sentence took **11,025 ms**.
+- Accuracy on that test was poor: the spoken phrase “sold 3 bags of rice at 40k
+  each” was transcribed as “So do the bugs of rice as for the key each.” Numbers,
+  accents, and Pidgin may be misrecognized. **Typed input is the main path**;
+  always check voice transcripts and confirm entries before saving.
+- Parsing and all money calculations are performed by app code. The app does
+  not send speech or bookkeeping data to an AI service.
 
-- All dependencies are listed in `package.json` and are used under their own licenses.
-- No pre-existing project code was used. This project was created during the hackathon submission period.
-- `<List any starter templates or prototypes here.>`
+## Project disclosure
 
-## Limitations
+- The project was developed with GitHub Copilot in VS Code and the Devpost Learn
+  Skill Pack.
+- Runtime speech recognition uses the downloaded Whisper model locally.
+- Third-party library names, resolved versions, and license identifiers below
+  are taken from `package.json` and `package-lock.json`. Transitive dependencies
+  are not enumerated here.
+- The Whisper source project is MIT-licensed. The license for the exact
+  converted `ggml-tiny.en.bin` artifact served by the configured model host was
+  **not independently verified**; confirm its upstream terms before
+  redistributing that model file.
+- Whether any retained starter-template code needs a separate disclosure is
+  **unconfirmed**; verify the project history before publication.
 
-- Speech recognition accuracy varies by phone and accent. Typed input is always available.
-- Reports are generated from the trader's own entries and are **self-reported and not independently audited**.
+## Direct dependencies and licenses
 
-## Roadmap
+Versions below are the lockfile-resolved versions. Development-only packages
+are marked **dev**.
 
-- Hausa and Yoruba phrase support
-- Customer credit tracking ("who owes me")
-- Backup and restore
+| Package | Version | License |
+|---|---:|---|
+| `@fugood/react-native-audio-pcm-stream` | 1.1.4 | MIT |
+| `@types/jest` (dev) | 29.5.14 | MIT |
+| `@types/react` (dev) | 19.2.18 | MIT |
+| `buffer` | 6.0.3 | MIT |
+| `expo` | 57.0.30 | MIT |
+| `expo-audio` | 57.0.5 | MIT |
+| `expo-constants` | 57.0.22 | MIT |
+| `expo-dev-client` | 57.0.20 | MIT |
+| `expo-file-system` | 57.0.7 | MIT |
+| `expo-font` | 57.0.4 | MIT |
+| `expo-linking` | 57.0.13 | MIT |
+| `expo-print` | 57.0.2 | MIT |
+| `expo-router` | 57.0.28 | MIT |
+| `expo-sharing` | 57.0.23 | MIT |
+| `expo-splash-screen` | 57.0.10 | MIT |
+| `expo-sqlite` | 57.0.4 | MIT |
+| `expo-status-bar` | 57.0.1 | MIT |
+| `expo-symbols` | 57.0.3 | MIT |
+| `expo-web-browser` | 57.0.3 | MIT |
+| `jest` (dev) | 29.7.0 | MIT |
+| `jest-expo` (dev) | 57.0.6 | MIT |
+| `react` | 19.2.3 | MIT |
+| `react-dom` | 19.2.3 | MIT |
+| `react-native` | 0.86.3 | MIT |
+| `react-native-reanimated` | 4.5.1 | MIT |
+| `react-native-safe-area-context` | 5.7.0 | MIT |
+| `react-native-screens` | 4.26.2 | MIT |
+| `react-native-web` | 0.21.4 | MIT |
+| `react-native-worklets` | 0.10.1 | MIT |
+| `whisper.rn` | 0.7.4 | MIT |
+| `typescript` (dev) | 6.0.3 | Apache-2.0 |
+
+The separately downloaded model is **not a package.json dependency**:
+`ggml-tiny.en.bin` (Whisper tiny.en; exact converted-artifact license
+verification noted above).
+
+## Known limitations
+
+- Voice recognition can be slow and inaccurate, particularly for numbers,
+  accents, and Pidgin. Typed entry is available as the primary alternative.
+- The initial model download needs internet access; subsequent voice
+  transcription is on-device.
+- Reports are based on the trader's self-recorded entries and are not
+  independently audited or a guarantee of loan eligibility.
 
 ## Team
 
-- `<Name 1>` (Representative)
-- `<Name 2>`
+- Solo developer: project owner.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+The project is released under the MIT License; see [LICENSE](./LICENSE).
+Third-party packages and the downloaded model have their own terms, listed or
+qualified above.
