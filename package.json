@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "dependencies": {
     "@fugood/react-native-audio-pcm-stream": "^1.1.4",
+    "buffer": "^6.0.3",
     "expo": "~57.0.28",
     "expo-audio": "~57.0.5",
     "expo-constants": "~57.0.21",
