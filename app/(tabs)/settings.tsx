@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
@@ -13,6 +14,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { clearDemoEntries, getDemoDatabase, replaceDemoEntries } from '@/src/db/demo';
+import { getProfile, saveProfile, type Profile } from '@/src/db/profile';
 import { getDemoMode, setDemoMode } from '@/src/db/settings';
 import { generateDemoMonthEntries } from '@/src/demo/samples';
 
@@ -51,10 +53,31 @@ export default function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [traderName, setTraderName] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [traderType, setTraderType] = useState('');
+  const [profileDefaults, setProfileDefaults] = useState<Profile>({
+    traderName: null,
+    businessName: null,
+    traderType: null,
+    phone: null,
+    currency: '₦',
+    language: 'en',
+  });
 
-  const refreshDemoMode = useCallback(async () => {
+  const refreshSettings = useCallback(async () => {
     try {
-      setDemoModeState(await getDemoMode(db));
+      const [enabled, savedProfile] = await Promise.all([
+        getDemoMode(db),
+        getProfile(db),
+      ]);
+      setDemoModeState(enabled);
+      if (savedProfile) {
+        setProfileDefaults(savedProfile);
+        setTraderName(savedProfile.traderName ?? '');
+        setBusinessName(savedProfile.businessName ?? '');
+        setTraderType(savedProfile.traderType ?? '');
+      }
       setError('');
     } catch (loadError) {
       setError(errorMessage(loadError));
@@ -63,9 +86,30 @@ export default function SettingsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void refreshDemoMode();
-    }, [refreshDemoMode])
+      void refreshSettings();
+    }, [refreshSettings])
   );
+
+  const saveTraderProfile = async () => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const profile: Profile = {
+        ...profileDefaults,
+        traderName: traderName.trim() || null,
+        businessName: businessName.trim() || null,
+        traderType: traderType.trim() || null,
+      };
+      await saveProfile(db, profile);
+      setProfileDefaults(profile);
+      setMessage('Profile saved.');
+    } catch (saveError) {
+      setError(errorMessage(saveError));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const changeDemoMode = async (enabled: boolean) => {
     setBusy(true);
@@ -140,6 +184,90 @@ export default function SettingsScreen() {
           { backgroundColor: colors.surface, borderColor: colors.border },
         ]}
       >
+        <Text style={[styles.cardTitle, { color: colors.text }]}>
+          Trader profile
+        </Text>
+        <Text style={[styles.fieldLabel, { color: colors.text }]}>
+          Trader name
+        </Text>
+        <TextInput
+          accessibilityLabel="Trader name"
+          value={traderName}
+          onChangeText={setTraderName}
+          placeholder="Your name"
+          placeholderTextColor={colors.secondaryText}
+          editable={!busy}
+          style={[
+            styles.input,
+            {
+              backgroundColor: colors.background,
+              borderColor: colors.border,
+              color: colors.text,
+            },
+          ]}
+        />
+        <Text style={[styles.fieldLabel, { color: colors.text }]}>
+          Business name
+        </Text>
+        <TextInput
+          accessibilityLabel="Business name"
+          value={businessName}
+          onChangeText={setBusinessName}
+          placeholder="Shop or business name"
+          placeholderTextColor={colors.secondaryText}
+          editable={!busy}
+          style={[
+            styles.input,
+            {
+              backgroundColor: colors.background,
+              borderColor: colors.border,
+              color: colors.text,
+            },
+          ]}
+        />
+        <Text style={[styles.fieldLabel, { color: colors.text }]}>
+          Trader type
+        </Text>
+        <TextInput
+          accessibilityLabel="Trader type"
+          value={traderType}
+          onChangeText={setTraderType}
+          placeholder="For example, provisions seller"
+          placeholderTextColor={colors.secondaryText}
+          editable={!busy}
+          style={[
+            styles.input,
+            {
+              backgroundColor: colors.background,
+              borderColor: colors.border,
+              color: colors.text,
+            },
+          ]}
+        />
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() => void saveTraderProfile()}
+          style={({ pressed }) => [
+            styles.actionButton,
+            {
+              backgroundColor: colors.button,
+              opacity: busy ? 0.55 : pressed ? 0.8 : 1,
+            },
+          ]}
+        >
+          <Text style={styles.actionButtonText}>
+            {busy ? 'Please wait...' : 'Save profile'}
+          </Text>
+        </Pressable>
+      </View>
+
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: colors.surface, borderColor: colors.border },
+        ]}
+      >
         <View style={styles.switchRow}>
           <View style={styles.switchCopy}>
             <Text style={[styles.cardTitle, { color: colors.text }]}>
@@ -200,6 +328,23 @@ export default function SettingsScreen() {
       {!!error && (
         <Text style={[styles.message, { color: colors.error }]}>{error}</Text>
       )}
+
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: colors.surface, borderColor: colors.border },
+        ]}
+      >
+        <Text style={[styles.cardTitle, { color: colors.text }]}>About</Text>
+        <Text style={[styles.aboutText, { color: colors.secondaryText }]}>
+          Open-source libraries: React Native, Expo Router, expo-sqlite,
+          expo-file-system, expo-print, expo-sharing, and whisper.rn.
+        </Text>
+        <Text style={[styles.aboutText, { color: colors.secondaryText }]}>
+          Speech model: Whisper tiny.en (ggml-tiny.en.bin), running on-device
+          through whisper.rn. Voice is optional; typing works offline too.
+        </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -236,6 +381,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
   },
+  fieldLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  input: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 16,
+  },
   description: {
     fontSize: 14,
     lineHeight: 20,
@@ -267,6 +424,10 @@ const styles = StyleSheet.create({
   message: {
     fontSize: 15,
     fontWeight: '600',
+    lineHeight: 21,
+  },
+  aboutText: {
+    fontSize: 14,
     lineHeight: 21,
   },
 });
